@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Embedded Content</title>
+
+  <!-- Responsive support for mobile, tablet, laptop and desktop -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Original iframe behavior and positioning preserved */
+    #app-frame {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    /* Connection message shown only when the app cannot be reached */
+    #connection-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      padding: 24px;
+      background: #ffffff;
+      color: #202124;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+
+    #connection-screen.visible {
+      display: flex;
+    }
+
+    #connection-message {
+      width: 100%;
+      max-width: 360px;
+    }
+
+    #connection-message h2 {
+      margin: 0 0 12px;
+      font-size: 22px;
+    }
+
+    #connection-message p {
+      margin: 0 0 20px;
+      color: #5f6368;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    #refresh-button {
+      min-width: 130px;
+      padding: 12px 22px;
+      border: 0;
+      border-radius: 6px;
+      background: #1a73e8;
+      color: #ffffff;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    #refresh-button:disabled {
+      opacity: 0.65;
+      cursor: wait;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Existing website / iframe -->
+  <iframe
+    id="app-frame"
+    src="https://script.google.com/macros/s/AKfycbzWXYPuAjDMENbLpyKIJEhLHAxUUKoVlFB-mPF0oEQu50yvFv73asDFjuF4E4UEs-44/exec"
+    width="100%"
+    height="100%"
+    allowfullscreen="true">
+  </iframe>
+
+  <!-- Connection screen; the iframe URL is not shown in this message -->
+  <div id="connection-screen" role="status" aria-live="polite">
+    <div id="connection-message">
+      <h2>No internet connection</h2>
+      <p id="connection-text">Please connect to the internet and try again.</p>
+      <button id="refresh-button" type="button">Refresh</button>
+    </div>
+  </div>
+
+  <script>
+    const appFrame = document.getElementById('app-frame');
+    const connectionScreen = document.getElementById('connection-screen');
+    const connectionText = document.getElementById('connection-text');
+    const refreshButton = document.getElementById('refresh-button');
+
+    let connectionTimer = null;
+    let retrying = false;
+
+    function showConnectionMessage(message) {
+      connectionText.textContent = message;
+      connectionScreen.classList.add('visible');
+    }
+
+    function hideConnectionMessage() {
+      connectionScreen.classList.remove('visible');
+    }
+
+    function startConnectionCheck() {
+      clearTimeout(connectionTimer);
+      retrying = false;
+      refreshButton.disabled = false;
+      refreshButton.textContent = 'Refresh';
+
+      if (!navigator.onLine) {
+        showConnectionMessage('Please connect to the internet and try again.');
+        return;
+      }
+
+      hideConnectionMessage();
+
+      /*
+       * Browsers do not expose the contents or exact network error of a
+       * cross-origin iframe. This timeout catches slow or unreachable loads
+       * without changing the embedded app itself.
+       */
+      connectionTimer = setTimeout(function() {
+        if (!retrying) {
+          showConnectionMessage(
+            'The website is taking too long to respond. Check your connection and refresh.'
+          );
+        }
+      }, 15000);
+    }
+
+    appFrame.addEventListener('load', function() {
+      clearTimeout(connectionTimer);
+      retrying = false;
+      refreshButton.disabled = false;
+      refreshButton.textContent = 'Refresh';
+
+      if (navigator.onLine) {
+        hideConnectionMessage();
+      } else {
+        showConnectionMessage('Please connect to the internet and try again.');
+      }
+    });
+
+    window.addEventListener('offline', function() {
+      clearTimeout(connectionTimer);
+      showConnectionMessage('No internet connection. Please connect and refresh.');
+    });
+
+    window.addEventListener('online', function() {
+      showConnectionMessage('Internet connection detected. Tap Refresh to try again.');
+    });
+
+    refreshButton.addEventListener('click', function() {
+      if (retrying) return;
+
+      if (!navigator.onLine) {
+        showConnectionMessage('No internet connection. Please connect and try again.');
+        return;
+      }
+
+      retrying = true;
+      refreshButton.disabled = true;
+      refreshButton.textContent = 'Checking...';
+      showConnectionMessage('Checking your connection. Please wait...');
+
+      startConnectionCheck();
+      retrying = true;
+      refreshButton.disabled = true;
+      refreshButton.textContent = 'Checking...';
+
+      try {
+        appFrame.src = appFrame.src;
+      } catch (error) {
+        retrying = false;
+        refreshButton.disabled = false;
+        refreshButton.textContent = 'Refresh';
+        showConnectionMessage('Unable to reach the website. Please try again.');
+      }
+    });
+
+    startConnectionCheck();
+
+    /*
+     * Original fullscreen function preserved.
+     */
+    window.onload = function() {
+      document.querySelector('iframe')
+        .requestFullscreen()
+        .catch((err) => {
+          console.error('Error attempting to enable full-screen mode:', err.message);
+        });
+    };
+  </script>
+
+</body>
+</html>

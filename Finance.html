@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Personal Finance System KSH</title>
+<style>html,body{margin:0;padding:0;background:#f8fafc}</style>
+</head>
+<body>
+<div id="pfs-mount"></div>
+
+<script>
+/* =====================================================================
+   PERSONAL FINANCE SYSTEM KSH  -  single file, fully offline
+   ---------------------------------------------------------------------
+   STANDALONE: open this file directly. It mounts itself into #pfs-mount.
+
+   INTEGRATION INTO ANOTHER SYSTEM (optional):
+     1. Copy this <script> block into the parent app (or load it).
+     2. Before it loads set:  window.PFS_NO_AUTOMOUNT = true;
+     3. Mount it into any element:
+          const pfs = PersonalFinanceSystem.mount(document.getElementById("host"), {
+            embedded: true,            // default when a container is given
+            dbName: "PersonalFinanceKSH",   // change to isolate storage
+            whatsapp: "254748949444"
+          });
+          pfs.showTab("report");  pfs.destroy();
+   The only global created is  window.PersonalFinanceSystem.
+   All CSS is scoped under the .pfs class and prefixed with pfs-.
+   ===================================================================== */
+(function(){
+"use strict";
+if(window.PersonalFinanceSystem) return;
+
+var VERSION="1.0.0";
+var LEGACY_DB="ChurchFinanceKSH";
+var BK_APP="PersonalFinanceSystem";
+var STYLE_ID="pfs-style";
+var monthsArr=["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+/* ------------------------------ CSS (scoped) ------------------------------ */
+var CSS=`
+.pfs{--primary:#059669;--dark:#0f172a;--bg:#f8fafc;font-family:'Segoe UI',sans-serif;background:var(--bg);color:#000;position:relative;padding-bottom:70px;min-height:100vh;box-sizing:border-box;text-align:left;line-height:normal;font-size:16px}
+.pfs *{box-sizing:border-box}
+.pfs-header{background:var(--dark);color:#fff;padding:15px;text-align:center;font-weight:bold;position:sticky;top:0;z-index:100}
+.pfs-container{padding:10px;max-width:800px;margin:auto}
+.pfs-card{background:#fff;padding:15px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.1);margin-bottom:15px}
+.pfs-stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.pfs-stat-box{background:#fff;padding:10px;border-radius:10px;text-align:center;border:1px solid #e2e8f0;font-size:11px}
+.pfs-stat-box h5,.pfs-stat-box p{margin:3px 0}
+.pfs-nav{position:fixed;bottom:0;left:0;width:100%;background:#fff;display:flex;border-top:1px solid #e2e8f0;z-index:1000}
+.pfs-nav-btn{flex:1;text-align:center;padding:10px 2px;color:#64748b;cursor:pointer;font-size:10px}
+.pfs-nav-btn b{display:block;font-size:18px;font-weight:normal}
+.pfs-nav-btn.pfs-active{color:var(--primary);border-top:3px solid var(--primary)}
+.pfs input,.pfs select,.pfs textarea{width:100%;padding:10px;margin:5px 0;border:1px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;background:#fff;color:#000}
+.pfs-btn{background:var(--primary);color:#fff;border:none;padding:12px;border-radius:8px;width:100%;font-weight:bold;cursor:pointer;font-size:14px;font-family:inherit}
+.pfs-btn:disabled{opacity:.6;cursor:not-allowed}
+.pfs .pfs-income{color:#000}.pfs .pfs-expense{color:#dc2626}.pfs .pfs-balance{color:#059669}
+.pfs-act{cursor:pointer;margin-left:10px;font-size:12px;font-weight:bold}
+.pfs-edit-i{color:#3b82f6}.pfs-del-i{color:#ef4444}
+.pfs table{width:100%;font-size:11px;border-collapse:collapse;margin-top:10px}
+.pfs th{text-align:left;border-bottom:2px solid #e2e8f0;padding:8px 4px}
+.pfs td{padding:8px 4px;border-bottom:1px solid #f1f5f9}
+.pfs-report-grid{display:flex;justify-content:space-between;margin-top:20px;padding:15px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0}
+.pfs-report-meta{text-align:right;font-size:12px;color:#64748b}
+.pfs-dept-item{display:flex;justify-content:space-between;background:#f1f5f9;padding:8px;border-radius:6px;margin-bottom:5px;font-size:12px}
+.pfs-row2{display:flex;gap:10px}
+.pfs-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#000;color:#fff;padding:10px 16px;border-radius:5px;font-size:13px;z-index:3000;display:none;max-width:90%;text-align:center}
+.pfs-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:2000}
+.pfs-modal>div{background:#fff;padding:20px;border-radius:12px;width:290px;max-width:92%;text-align:center}
+.pfs-modal button{padding:9px 18px;border:none;border-radius:6px;margin:10px 4px 0;cursor:pointer;font-weight:bold;font-family:inherit}
+.pfs-page p{line-height:1.6;font-size:14px}
+.pfs a.pfs-wa{display:block;text-align:center;background:#25d366;color:#fff;text-decoration:none;padding:12px;border-radius:8px;font-weight:bold;margin-top:10px}
+.pfs .pfs-m-only,.pfs .pfs-fab,.pfs .pfs-more{display:none}
+.pfs-fabwrap{display:contents}
+.pfs-sw{position:relative;display:inline-block;width:52px;height:30px}
+.pfs .pfs-sw input{opacity:0;width:0;height:0;margin:0}
+.pfs-sw span{position:absolute;inset:0;background:#cbd5e1;border-radius:30px;transition:.2s;cursor:pointer}
+.pfs-sw span:before{content:"";position:absolute;width:24px;height:24px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.pfs .pfs-sw input:checked+span{background:var(--primary)}
+.pfs .pfs-sw input:checked+span:before{transform:translateX(22px)}
+.pfs-rp-h{font-size:13px;color:#334155;font-weight:bold;margin:12px 0 0}
+.pfs-rsel{display:flex;gap:6px;flex-wrap:wrap}
+.pfs-rsel select{flex:1;min-width:100px}
+.pfs-sw-row{display:flex;justify-content:space-between;align-items:center;margin:12px 0}
+.pfs-small{font-size:12px;color:#64748b;line-height:1.5}
+.pfs-lbl{font-size:12px;color:#64748b;display:block;margin-top:14px}
+.pfs-status{margin-top:14px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5;background:#f1f5f9;color:#334155;white-space:pre-wrap;word-break:break-word}
+.pfs-status.pfs-ok{background:#ecfdf5;color:#065f46}
+.pfs-status.pfs-err{background:#fef2f2;color:#991b1b}
+.pfs-status.pfs-warn{background:#fffbeb;color:#92400e}
+@media(min-width:900px){
+ .pfs{padding-bottom:0;margin-left:220px}
+ .pfs-nav{width:220px;height:100%;top:0;flex-direction:column;border-top:0;border-right:1px solid #e2e8f0;padding-top:70px}
+ .pfs-nav-btn{flex:none;text-align:left;padding:14px 20px;font-size:14px;border-top:0;border-left:3px solid transparent}
+ .pfs-nav-btn b{display:inline;margin-right:10px}
+ .pfs-nav-btn.pfs-active{border-top:0;border-left:3px solid var(--primary);background:#ecfdf5}
+ .pfs-header{margin-left:-220px;padding-left:235px;text-align:left}
+ .pfs-container{max-width:1000px}
+ .pfs-toast{bottom:30px}
+}
+@media(max-width:480px){.pfs-stat-row{grid-template-columns:1fr 1fr}}
+@media(max-width:599px){
+ .pfs .pfs-d-only{display:none!important}
+ .pfs .pfs-m-only{display:block}
+ .pfs-container{padding:8px}
+ .pfs input,.pfs select,.pfs textarea{font-size:16px}
+ .pfs-report-grid{flex-direction:column;gap:10px}
+ .pfs-report-meta{text-align:left}
+ .pfs .pfs-fab{display:flex;position:fixed;left:16px;bottom:72px;width:54px;height:54px;border-radius:50%;background:var(--primary);color:#fff;border:none;font-size:32px;line-height:1;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(0,0,0,.3);z-index:900;cursor:pointer;padding:0}
+ .pfs .pfs-more{display:block;position:fixed;right:10px;bottom:66px;background:#fff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.25);z-index:1500;overflow:hidden;opacity:0;visibility:hidden;transform:translateY(10px);transition:.2s}
+ .pfs .pfs-more.pfs-open{opacity:1;visibility:visible;transform:none}
+ .pfs .pfs-more div{padding:14px 32px;font-size:14px;border-bottom:1px solid #f1f5f9;cursor:pointer}
+ .pfs .pfs-more div:last-child{border-bottom:0}
+}
+/* Embedded (integrated) mode: no fixed sidebar, nav sticks inside the host */
+.pfs.pfs-embedded{margin-left:0;padding-bottom:0;min-height:0}
+.pfs.pfs-embedded .pfs-header{margin-left:0;padding-left:15px;text-align:center}
+.pfs.pfs-embedded .pfs-nav{position:sticky;bottom:0;top:auto;left:auto;width:100%;height:auto;flex-direction:row;border-right:0;border-top:1px solid #e2e8f0;padding-top:0}
+.pfs.pfs-embedded .pfs-nav-btn{flex:1;text-align:center;padding:10px 2px;font-size:10px;border-left:0;border-top:3px solid transparent}
+.pfs.pfs-embedded .pfs-nav-btn b{display:block;margin:0;font-size:18px}
+.pfs.pfs-embedded .pfs-nav-btn.pfs-active{border-left:0;border-top:3px solid var(--primary);background:none}
+.pfs.pfs-embedded .pfs-container{max-width:800px}
+.pfs.pfs-embedded .pfs-fabwrap{display:block;position:sticky;bottom:66px;height:0;z-index:900}
+.pfs.pfs-embedded .pfs-fab{position:absolute;left:16px;bottom:0}
+`;
+
+/* ------------------------------ HTML template ------------------------------
+   (every id="x" is rewritten to id="pfs_x" at mount time to avoid clashes)    */
+var TEMPLATE=`
+<div class="pfs-header"><a id="backLink" href="#" style="display:none;position:absolute;left:12px;top:0;bottom:0;align-items:center;color:#fff;text-decoration:none;font-size:13px;font-weight:bold">&#8249; POS</a>PERSONAL FINANCE SYSTEM</div>
+<div class="pfs-container">
+
+<div id="homeTab" class="pfs-tab">
+  <div class="pfs-row2"><select id="dashMonth"></select><select id="dashYear"></select></div>
+  <div id="topStats" class="pfs-stat-row"></div>
+  <div class="pfs-card">
+    <input type="text" id="deptSearch" placeholder="Search businesses...">
+    <div style="overflow-x:auto"><table><thead><tr><th>Business</th><th id="bfTh">B/F</th><th>Inc</th><th>Exp</th><th>Bal</th></tr></thead><tbody id="deptTableBody"></tbody></table></div>
+  </div>
+  <div class="pfs-card"><h4>Recent Activity</h4><div id="recentList"></div></div>
+</div>
+
+<div id="reportTab" class="pfs-tab" style="display:none">
+  <div class="pfs-card">
+    <h3>Statement Report</h3>
+    <p class="pfs-rp-h">Start</p>
+    <div class="pfs-rsel"><select id="rsYear"></select><select id="rsDept"></select><select id="rsMonth"></select></div>
+    <p class="pfs-rp-h">End</p>
+    <div class="pfs-rsel"><select id="reYear"></select><select id="reDept"></select><select id="reMonth"></select></div>
+    <button class="pfs-btn" id="runReportBtn" style="background:#3b82f6">Filter Report</button>
+    <div id="dlBtns" class="pfs-row2" style="display:none;margin-top:5px">
+      <button class="pfs-btn" id="pdfBtn" style="background:#111827">Print / Save PDF</button>
+      <button class="pfs-btn" id="csvBtn" style="background:#475569">Download CSV</button>
+    </div>
+    <div id="reportHeader" class="pfs-report-grid" style="display:none"><div id="reportSummary"></div><div id="reportMeta" class="pfs-report-meta"></div></div>
+    <div style="overflow-x:auto"><table id="reportDeptTable"></table></div>
+    <div style="overflow-x:auto"><table id="reportTable"></table></div>
+  </div>
+</div>
+
+<div id="addTab" class="pfs-tab" style="display:none">
+  <div class="pfs-card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 id="formTitle">New Entry</h3>
+      <button id="deptMgmtToggle" style="font-size:10px;border:none;background:#e2e8f0;border-radius:5px;padding:5px;cursor:pointer">Manage Businesses</button>
+    </div>
+    <div id="deptMgmt" style="display:none;border:1px solid #ddd;padding:10px;margin-bottom:10px;border-radius:8px">
+      <div class="pfs-row2"><input type="text" id="newDeptName" placeholder="New Name"><button id="addDeptBtn" style="width:60px;background:var(--primary);color:#fff;border:none;border-radius:5px;cursor:pointer">Add</button></div>
+      <div id="deptActionList" style="margin-top:10px"></div>
+    </div>
+    <input type="hidden" id="editId">
+    <label style="font-size:12px;color:#64748b">Transaction Date</label>
+    <input type="date" id="trxDate">
+    <select id="deptSelect"></select>
+    <input type="number" id="amtInput" placeholder="Amount (KSH)" min="0" step="any">
+    <select id="typeSelect"><option value="Income">Income (+)</option><option value="Expense">Expense (-)</option></select>
+    <textarea id="descInput" placeholder="Description"></textarea>
+    <button class="pfs-btn" id="saveBtn">Save Record</button>
+    <button id="cancelEdit" class="pfs-btn" style="background:#64748b;margin-top:5px;display:none">Cancel Edit</button>
+  </div>
+</div>
+
+<div id="aboutTab" class="pfs-tab pfs-page" style="display:none"><div class="pfs-card">
+  <h3>About Us</h3>
+  <p>Personal Finance System helps you record income and expenses for yourself and for each of your businesses, track balances month to month and year to year, and produce clear financial statements.</p>
+  <p>All records are stored on your own device and work without an internet connection.     Personal Finance System power by EKAMBANI </p>
+</div></div>
+
+<div id="privacyTab" class="pfs-tab pfs-page" style="display:none"><div class="pfs-card">
+  <h3>Privacy Policy</h3>
+  <p>Your financial records are stored only in this browser's local database on this device. They are not sent to any server or shared with third parties.</p>
+  <p>Clearing your browser data will erase the records, so use BACK UP and download reports regularly. Backup files are saved only to the folder or device location that you choose. Anyone with access to this device and browser can view the records.</p>
+  <p>If you contact us on WhatsApp, only the messages you send there are shared with us.</p>
+</div></div>
+
+<div id="contactTab" class="pfs-tab pfs-page" style="display:none"><div class="pfs-card">
+  <h3>Contact Us</h3>
+  <p>Questions or support? Message us directly on WhatsApp.</p>
+  <a class="pfs-wa" id="waLink" href="https://wa.me/254748949444" target="_blank" rel="noopener">Chat on WhatsApp</a>
+</div></div>
+
+<div id="bfTab" class="pfs-tab pfs-page" style="display:none"><div class="pfs-card">
+  <h3>Balance Carry Forward</h3>
+  <div class="pfs-sw-row">
+    <b id="bfState">B/F is ON</b>
+    <label class="pfs-sw"><input type="checkbox" id="bfToggle"><span></span></label>
+  </div>
+  <p>When ON, the closing balance of earlier periods is carried forward into the selected period for each business, and shown on the Home page and in Reports.</p>
+  <p>When OFF, only the transactions inside the selected period are counted and no Balance Carry Forward is shown.</p>
+</div></div>
+
+<div id="backupTab" class="pfs-tab pfs-page" style="display:none"><div class="pfs-card">
+  <h3>Back Up</h3>
+  <div class="pfs-sw-row">
+    <b id="autoState">Auto Backup is OFF</b>
+    <label class="pfs-sw"><input type="checkbox" id="autoToggle"><span></span></label>
+  </div>
+  <p class="pfs-small" id="autoHelp"></p>
+
+  <label class="pfs-lbl" for="pfs_folderName">Save Folder Name</label>
+  <div class="pfs-row2">
+    <input type="text" id="folderName" maxlength="60" placeholder="e.g. MyFinanceBackup" autocomplete="off">
+    <button class="pfs-btn" id="folderSave" style="width:100px;margin:5px 0">SAVE</button>
+  </div>
+  <p class="pfs-small" id="folderNote"></p>
+
+  <button class="pfs-btn" id="manualBackupBtn" style="margin-top:10px">MANUAL BACKUP</button>
+  <button class="pfs-btn" id="restoreBtn" style="background:#3b82f6;margin-top:8px">RESTORE</button>
+  <input type="file" id="restoreFile" accept=".json,application/json" style="display:none">
+
+  <hr style="border:0;border-top:1px solid #e2e8f0;margin:22px 0 6px">
+  <h3 style="margin:10px 0 0">Google Drive Backup</h3>
+  <p class="pfs-small" id="driveHelp"></p>
+  <div class="pfs-sw-row">
+    <b id="driveAutoState">Drive Auto Backup is OFF</b>
+    <label class="pfs-sw"><input type="checkbox" id="driveAuto"><span></span></label>
+  </div>
+  <button class="pfs-btn" id="driveConnectBtn" style="background:#0f172a">CONNECT GOOGLE DRIVE</button>
+  <button class="pfs-btn" id="driveBackupBtn" style="margin-top:8px">DRIVE BACKUP</button>
+  <button class="pfs-btn" id="driveRestoreBtn" style="background:#3b82f6;margin-top:8px">DRIVE RESTORE</button>
+  <p class="pfs-small" id="driveInfo"></p>
+  <div id="backupStatus" class="pfs-status"></div>
+</div></div>
+
+</div>
+
+<div class="pfs-nav" id="nav">
+  <div class="pfs-nav-btn pfs-active" data-t="home"><b>&#8962;</b>HOME</div>
+  <div class="pfs-nav-btn" data-t="report"><b>&#9776;</b>REPORT</div>
+  <div class="pfs-nav-btn pfs-d-only" data-t="add"><b>&#10133;</b>ADD</div>
+  <div class="pfs-nav-btn pfs-d-only" data-t="about"><b>&#8505;</b>ABOUT</div>
+  <div class="pfs-nav-btn pfs-d-only" data-t="privacy"><b>&#128274;</b>PRIVACY</div>
+  <div class="pfs-nav-btn pfs-d-only" data-t="contact"><b>&#9742;</b>CONTACT</div>
+  <div class="pfs-nav-btn pfs-d-only" data-t="backup"><b>&#128190;</b>BACK UP</div>
+  <div class="pfs-nav-btn pfs-m-only" data-t="more"><b>&#9776;</b>MORE</div>
+</div>
+<div class="pfs-toast" id="toast"></div>
+<div class="pfs-fabwrap"><button class="pfs-fab" id="fab" data-go="add" aria-label="Add record">+</button></div>
+<div class="pfs-more" id="moreMenu">
+  <div data-go="about">About</div>
+  <div data-go="privacy">Privacy</div>
+  <div data-go="contact">Contact</div>
+  <div data-go="bf">B/F</div>
+  <div data-go="backup">BACK UP</div>
+</div>
+<div class="pfs-modal" id="modal"><div><p id="mMsg"></p><button id="mNo">Cancel</button><button id="mYes" style="background:#000;color:#fff">OK</button></div></div>
+`;
+
+function injectCSS(){
+  if(document.getElementById(STYLE_ID)) return;
+  var s=document.createElement("style");s.id=STYLE_ID;s.textContent=CSS;
+  (document.head||document.documentElement).appendChild(s);
+}
+
+/* =============================== MOUNT =============================== */
+function mountImpl(container,opts){
+  opts=opts||{};
+  if(!container){
+    container=document.getElementById("pfs-mount");
+    if(!container){container=document.createElement("div");document.body.appendChild(container)}
+  }
+  var embedded=opts.embedded!==undefined?!!opts.embedded:true;
+  var DB_NAME=opts.dbName||"PersonalFinanceKSH";
+  var WHATSAPP_NUMBER=opts.whatsapp||"254748949444";
+  var WHATSAPP_TEXT=opts.whatsappText||"Hello, I need help with the Personal Finance System.";
+  var BACK_URL=opts.backUrl||"";
+
+  injectCSS();
+  var root=document.createElement("div");
+  root.className="pfs"+(embedded?" pfs-embedded":"");
+  root.innerHTML=TEMPLATE.replace(/ id="/g,' id="pfs_');
+  container.appendChild(root);
+
+  /* ---------- state ---------- */
+  var currentReportData=null,recentCache=[],saving=false,bfOn=true;
+  var autoOn=false,folderName="",lastBackup=null,statusMsg=null,bkBusy=false;
+  var rev=0,lastAutoRev=0,autoTimer=null,destroyed=false,restoreOk=false;
+  var FS=typeof window.showDirectoryPicker==="function";
+  var drv={id:"drive",connected:false,auto:false,folderId:"",folderName:"",fileId:"",syncedFileId:"",email:"",last:0,dirty:false},drvBusy=false,drvTimer=null;
+
+  var $=function(id){return root.querySelector("#pfs_"+id)};
+  var esc=function(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})};
+  var fmt=function(n){return Number(n||0).toLocaleString()};
+  var uid=function(){return (window.crypto&&crypto.randomUUID)?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)};
+
+  /* ---------- IndexedDB ---------- */
+  var _db=null;
+  function db(){
+    if(_db) return Promise.resolve(_db);
+    return new Promise(function(res,rej){
+      if(!window.indexedDB){rej(new Error("IndexedDB is not available in this browser"));return}
+      var r=indexedDB.open(DB_NAME,1);
+      r.onupgradeneeded=function(e){var d=e.target.result;
+        if(!d.objectStoreNames.contains("departments")) d.createObjectStore("departments",{keyPath:"id"});
+        if(!d.objectStoreNames.contains("transactions")) d.createObjectStore("transactions",{keyPath:"id"});
+        if(!d.objectStoreNames.contains("settings")) d.createObjectStore("settings",{keyPath:"id"});};
+      r.onsuccess=function(){_db=r.result;_db.onversionchange=function(){_db.close();_db=null};res(_db)};
+      r.onerror=function(){rej(r.error)};
+      r.onblocked=function(){toast("Close other tabs of this app, then reload")};
+    });
+  }
+  async function idb(store,mode,fn){
+    var d=await db();
+    return new Promise(function(res,rej){
+      var t=d.transaction(store,mode),s=t.objectStore(store),rq=fn(s);
+      t.oncomplete=function(){res(rq&&rq.result)};t.onerror=function(){rej(t.error)};t.onabort=function(){rej(t.error)};
+    });
+  }
+  var getAll=function(s){return idb(s,"readonly",function(o){return o.getAll()})};
+  var getRec=function(s,k){return idb(s,"readonly",function(o){return o.get(k)})};
+  var putRec=function(s,v){var p=idb(s,"readwrite",function(o){return o.put(v)});if(s!=="settings")p.then(markDirty,function(){});return p};
+  var delRec=function(s,k){var p=idb(s,"readwrite",function(o){return o.delete(k)});if(s!=="settings")p.then(markDirty,function(){});return p};
+
+  /* Copy records from the old Church Finance database (read-only, never deleted). */
+  function openLegacy(){
+    return new Promise(function(res,rej){
+      if(!window.indexedDB){res(null);return}
+      var created=false,r;
+      try{r=indexedDB.open(LEGACY_DB)}catch(e){res(null);return}
+      r.onupgradeneeded=function(){created=true;try{r.transaction.abort()}catch(e){}};
+      r.onsuccess=function(){res(r.result)};
+      r.onerror=function(){
+        if(created){try{indexedDB.deleteDatabase(LEGACY_DB)}catch(e){}res(null)}else res(null);
+      };
+      r.onblocked=function(){res(null)};
+    });
+  }
+  function readStore(d,name){
+    return new Promise(function(res){
+      if(!d.objectStoreNames.contains(name)){res([]);return}
+      try{
+        var t=d.transaction(name,"readonly"),rq=t.objectStore(name).getAll();
+        t.oncomplete=function(){res(rq.result||[])};t.onerror=function(){res([])};t.onabort=function(){res([])};
+      }catch(e){res([])}
+    });
+  }
+  async function migrateLegacy(){
+    var flag=await getRec("settings","legacyMigrated");
+    if(flag) return;
+    var lg=await openLegacy();
+    if(lg){
+      try{
+        var ds=await readStore(lg,"departments"),ts=await readStore(lg,"transactions"),ss=await readStore(lg,"settings");
+        var d=await db();
+        await new Promise(function(res,rej){
+          var t=d.transaction(["departments","transactions","settings"],"readwrite");
+          var a=t.objectStore("departments"),b=t.objectStore("transactions"),c=t.objectStore("settings");
+          ds.forEach(function(x){a.add(x).onerror=function(ev){ev.preventDefault();ev.stopPropagation()}});
+          ts.forEach(function(x){b.add(x).onerror=function(ev){ev.preventDefault();ev.stopPropagation()}});
+          ss.forEach(function(x){if(x&&x.id==="bf")c.add(x).onerror=function(ev){ev.preventDefault();ev.stopPropagation()}});
+          t.oncomplete=function(){res()};t.onabort=function(){rej(t.error)};t.onerror=function(){};
+        });
+      }finally{try{lg.close()}catch(e){}}
+    }
+    await putRec("settings",{id:"legacyMigrated",value:true});
+  }
+  async function seedPersonal(){
+    var seeded=await getRec("settings","seeded");
+    if(seeded) return;
+    var ds=await getAll("departments");
+    if(!ds.length) await putRec("departments",{id:"D-"+uid(),name:"Personal",active:true});
+    await putRec("settings",{id:"seeded",value:true});
+  }
+
+  /* ---------- UI helpers ---------- */
+  function toast(m){var t=$("toast");t.textContent=m;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(function(){t.style.display="none"},2600)}
+  function ask(msg){return new Promise(function(r){$("mMsg").textContent=msg;$("modal").style.display="flex";
+    $("mYes").onclick=function(){$("modal").style.display="none";r(true)};$("mNo").onclick=function(){$("modal").style.display="none";r(false)}})}
+  function switchTab(t){
+    toggleMore(false);$("fab").style.visibility=t==="add"?"hidden":"visible";
+    root.querySelectorAll(".pfs-nav-btn").forEach(function(b){
+      b.classList.toggle("pfs-active",b.dataset.t===t||(b.dataset.t==="more"&&["about","privacy","contact","bf","backup"].indexOf(t)>-1));});
+    root.querySelectorAll(".pfs-tab").forEach(function(e){e.style.display="none"});
+    var el=$(t+"Tab");if(!el)return;
+    el.style.display="block";
+    if(t==="backup")renderBackupPage();
+    try{root.scrollIntoView&&embedded?window.scrollTo&&0:window.scrollTo(0,0)}catch(e){}
+    if(!embedded)window.scrollTo(0,0);
+  }
+  function toggleMore(f){var m=$("moreMenu");m.classList.toggle("pfs-open",f===undefined?!m.classList.contains("pfs-open"):f)}
+  async function toggleBF(){
+    bfOn=$("bfToggle").checked;
+    try{await putRec("settings",{id:"bf",value:bfOn})}catch(e){toast("Could not save setting")}
+    $("bfState").textContent="B/F is "+(bfOn?"ON":"OFF");
+    await loadDashboard();if(currentReportData)await runReport();
+    toast(bfOn?"Balance Carry Forward ON":"Balance Carry Forward OFF");
+  }
+  function waUrl(){return "https://wa.me/"+WHATSAPP_NUMBER+"?text="+encodeURIComponent(WHATSAPP_TEXT)}
+
+  function setupUI(){
+    var now=new Date();
+    [$("dashMonth"),$("rsMonth"),$("reMonth")].forEach(function(sel){
+      sel.add(new Option("All Months","ALL"));monthsArr.forEach(function(m,i){sel.add(new Option(m,i))});
+      sel.value=(sel.id==="pfs_dashMonth")?now.getMonth():"ALL";});
+    [$("dashYear"),$("rsYear"),$("reYear")].forEach(function(sel){
+      sel.add(new Option("All Years","ALL"));for(var i=2024;i<=2040;i++) sel.add(new Option(i,i));
+      sel.value=(sel.id==="pfs_dashYear")?now.getFullYear():"ALL";});
+  }
+
+  /* ---------- Period + carry-forward logic ----------
+     Opening balance (B/F) is always CALCULATED from all earlier records of the
+     business (never stored), so it carries correctly month-to-month and
+     year-to-year and can never be counted twice. */
+  function period(y,m){
+    if(y==="ALL") return {start:null,prefix:null,month:m==="ALL"?null:+m};
+    var yy=String(y);
+    if(m==="ALL") return {start:yy+"-01-01",prefix:yy,month:null};
+    var mm=String(+m+1).padStart(2,"0");
+    return {start:yy+"-"+mm+"-01",prefix:yy+"-"+mm,month:null};
+  }
+  function inPeriod(date,p,m){
+    if(p.prefix) return date.startsWith(p.prefix);
+    if(p.month!==null) return +date.slice(5,7)-1===p.month;
+    return true;
+  }
+  function summarize(trans,deptId,y,m){
+    var p=period(y,m),open=0,inc=0,exp=0;
+    trans.forEach(function(t){
+      if(deptId!=="ALL"&&t.dept!==deptId) return;
+      var net=(t.type==="Income"?1:-1)*Number(t.amount||0);
+      if(p.start&&t.date<p.start){if(bfOn) open+=net}
+      else if(inPeriod(t.date,p,m)){if(t.type==="Income")inc+=Number(t.amount||0);else exp+=Number(t.amount||0)}
+    });
+    return {open:open,inc:inc,exp:exp,bal:open+inc-exp};
+  }
+
+  /* ---------- Dashboard ---------- */
+  async function loadDashboard(){
+    var m=$("dashMonth").value,y=$("dashYear").value;
+    var res=await Promise.all([getAll("departments"),getAll("transactions")]);
+    var depts=res[0],trans=res[1];
+    var active=depts.filter(function(d){return d.active!==false}).sort(function(a,b){return a.name.localeCompare(b.name)});
+    var map={};depts.forEach(function(d){map[d.id]=d.name});
+    var activeIds=new Set(active.map(function(d){return d.id}));
+    var O=0,I=0,E=0,tH="";
+    active.forEach(function(d){var s=summarize(trans,d.id,y,m);O+=s.open;I+=s.inc;E+=s.exp;
+      tH+='<tr><td>'+esc(d.name)+'</td>'+(bfOn?'<td>'+fmt(s.open)+'</td>':'')+'<td class="pfs-income">'+fmt(s.inc)+'</td><td class="pfs-expense">'+fmt(s.exp)+'</td><td class="pfs-balance"><b>'+fmt(s.bal)+'</b></td></tr>'});
+    $("topStats").innerHTML=
+      '<div class="pfs-stat-box"><h5>Balance</h5><p class="pfs-balance">KSH '+fmt(O+I-E)+'</p></div>'+
+      (bfOn?'<div class="pfs-stat-box"><h5>B/F</h5><p>KSH '+fmt(O)+'</p></div>':'')+
+      '<div class="pfs-stat-box"><h5>Income</h5><p class="pfs-income">KSH '+fmt(I)+'</p></div>'+
+      '<div class="pfs-stat-box"><h5>Expense</h5><p class="pfs-expense">KSH '+fmt(E)+'</p></div>';
+    $("bfTh").style.display=bfOn?"":"none";
+    $("deptTableBody").innerHTML=tH||'<tr><td colspan="5">No businesses yet. Add one under ADD &gt; Manage Businesses.</td></tr>';
+    recentCache=trans.slice().sort(function(a,b){return (b.created||0)-(a.created||0)}).slice(0,30);
+    $("recentList").innerHTML=recentCache.map(function(t){
+      var dn=map[t.dept]||"Unknown";
+      return '<div style="padding:10px;border-bottom:1px dotted #ccc;display:flex;justify-content:space-between;align-items:center;font-size:12px">'+
+        '<div><b>'+esc(dn)+'</b><br><small>'+t.date.split("-").reverse().join("/")+' - '+esc(t.desc)+'</small></div>'+
+        '<div style="text-align:right"><b class="pfs-'+String(t.type).toLowerCase()+'">'+fmt(t.amount)+'</b><br>'+
+        '<span class="pfs-act pfs-edit-i" data-act="edit" data-id="'+esc(t.id)+'">Edit</span><span class="pfs-act pfs-del-i" data-act="del" data-id="'+esc(t.id)+'">Delete</span></div></div>'}).join("")||"<small>No records yet.</small>";
+    var dOpt=active.map(function(d){return '<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>'}).join("");
+    var cur=$("deptSelect").value;$("deptSelect").innerHTML=dOpt;if(cur&&activeIds.has(cur))$("deptSelect").value=cur;
+    ["rsDept","reDept"].forEach(function(id){var rc=$(id).value;$(id).innerHTML='<option value="ALL">All Businesses</option>'+dOpt;if(rc)$(id).value=rc});
+    $("deptActionList").innerHTML=active.map(function(d){return '<div class="pfs-dept-item">'+esc(d.name)+' <span style="color:red;cursor:pointer" data-act="rmdept" data-id="'+esc(d.id)+'">X</span></div>'}).join("");
+    searchTable();
+  }
+
+  /* ---------- Transactions ---------- */
+  function startEdit(id){
+    var t=recentCache.find(function(x){return x.id===id});if(!t)return;
+    switchTab("add");
+    $("editId").value=t.id;$("trxDate").value=t.date;$("deptSelect").value=t.dept;
+    $("amtInput").value=t.amount;$("typeSelect").value=t.type;$("descInput").value=t.desc;
+    $("formTitle").innerText="Edit Entry";$("cancelEdit").style.display="block";
+  }
+  async function confirmDelete(id){
+    if(await ask("Delete this record?")){await delRec("transactions",id);toast("Deleted Successfully");loadDashboard()}
+  }
+  async function saveTrx(){
+    if(saving) return;
+    var editId=$("editId").value;
+    var o={id:editId||uid(),date:$("trxDate").value||new Date().toISOString().slice(0,10),
+      dept:$("deptSelect").value,amount:parseFloat($("amtInput").value),type:$("typeSelect").value,
+      desc:$("descInput").value.trim()};
+    if(!o.dept){toast("Add a business first");return}
+    if(!o.amount||o.amount<=0){toast("Enter a valid amount");return}
+    saving=true;$("saveBtn").disabled=true;
+    try{
+      var all=await getAll("transactions");
+      var dup=all.find(function(t){return t.id!==o.id&&t.date===o.date&&t.dept===o.dept&&t.type===o.type&&Number(t.amount)===o.amount&&(t.desc||"")===o.desc});
+      if(dup){toast("Duplicate record blocked");return}
+      if(editId){var old=all.find(function(t){return t.id===editId});o.created=old?old.created:Date.now();o.ref=old?old.ref:"TRX-"+Date.now()}
+      else{o.created=Date.now();o.ref="TRX-"+o.created}
+      await putRec("transactions",o);
+      toast(editId?"Updated Successfully":"Saved Successfully");
+      resetForm();await loadDashboard();switchTab("home");
+    }catch(e){toast("Save failed: "+e)}
+    finally{saving=false;$("saveBtn").disabled=false}
+  }
+  function resetForm(){
+    $("editId").value="";$("amtInput").value="";$("descInput").value="";$("trxDate").valueAsDate=new Date();
+    $("formTitle").innerText="New Entry";$("cancelEdit").style.display="none";
+  }
+
+  /* ---------- Businesses (stored in the "departments" store for compatibility) ---------- */
+  function toggleDeptMgmt(){var e=$("deptMgmt");e.style.display=e.style.display==="none"?"block":"none"}
+  async function addNewDept(){
+    var name=$("newDeptName").value.trim();if(!name)return;
+    var depts=await getAll("departments");
+    if(depts.some(function(d){return d.active!==false&&d.name.toLowerCase()===name.toLowerCase()})){toast("Business already exists");return}
+    var old=depts.find(function(d){return d.active===false&&d.name.toLowerCase()===name.toLowerCase()});
+    await putRec("departments",old?Object.assign({},old,{active:true}):{id:"D-"+uid(),name:name,active:true});
+    toast("Added");$("newDeptName").value="";loadDashboard();
+  }
+  async function removeDept(id){
+    if(!await ask("Remove this business?"))return;
+    var depts=await getAll("departments");var d=depts.find(function(x){return x.id===id});
+    if(d){d.active=false;await putRec("departments",d)}
+    toast("Business Removed");loadDashboard();
+  }
+
+  /* ---------- Reports (Start -> End, per-business Balance Carry Forward) ---------- */
+  function plabel(y,m){return (m==="ALL"?"":monthsArr[m]+" ")+(y==="ALL"?"(all years)":y)}
+  function bound(y,m,end){
+    if(y==="ALL") return null;
+    if(m==="ALL") return y+(end?"-12-31":"-01-01");
+    return y+"-"+String(+m+1).padStart(2,"0")+(end?"-31":"-01");
+  }
+  async function runReport(){
+    var sy=$("rsYear").value,sm=$("rsMonth").value,ey=$("reYear").value,em=$("reMonth").value;
+    var sd=$("rsDept"),ed=$("reDept");
+    var from=bound(sy,sm,false),to=bound(ey,em,true);
+    if(from&&to&&from>to){toast("Start must not be after End");return}
+    var res=await Promise.all([getAll("transactions"),getAll("departments")]);
+    var trans=res[0],depts=res[1];
+    var used=new Set(trans.map(function(t){return t.dept}));
+    var pool=depts.filter(function(d){return d.active!==false||used.has(d.id)}).sort(function(a,b){return a.name.localeCompare(b.name)});
+    var all=sd.value==="ALL"||ed.value==="ALL";
+    var pick=all?pool:pool.filter(function(d){return d.id===sd.value||d.id===ed.value});
+    var per=pick.map(function(d){return {id:d.id,name:d.name,open:0,inc:0,exp:0,bal:0,txs:[],months:[]}});
+    var pm={};per.forEach(function(x){pm[x.id]=x});
+    /* Pass 1: each business only sees its own records. Records before Start form that
+       business's Balance Carry Forward; records inside Start..End form the period. */
+    trans.forEach(function(t){
+      var x=pm[t.dept];if(!x)return;
+      var a=Number(t.amount||0),net=t.type==="Income"?a:-a;
+      if(from&&t.date<from){if(bfOn)x.open+=net;return}
+      if(to&&t.date>to)return;
+      if(t.type==="Income")x.inc+=a;else x.exp+=a;
+      x.txs.push({raw:t.date,created:t.created||0,desc:t.desc||"-",income:t.type==="Income"?a:0,expense:t.type==="Expense"?a:0});
+    });
+    /* Pass 2: walk month by month; each month's B/F is the previous month's closing balance. */
+    per.forEach(function(x){
+      x.txs.sort(function(a,b){return a.raw.localeCompare(b.raw)||a.created-b.created});
+      var run=x.open,cur=null;
+      x.txs.forEach(function(t){
+        var ym=t.raw.slice(0,7);
+        if(!cur||cur.ym!==ym){cur={ym:ym,label:monthsArr[+ym.slice(5,7)-1]+" "+ym.slice(0,4),open:run,inc:0,exp:0,close:run,rows:[]};x.months.push(cur)}
+        run+=t.income-t.expense;cur.inc+=t.income;cur.exp+=t.expense;cur.close=run;
+        cur.rows.push({date:t.raw.split("-").reverse().join("/"),desc:t.desc,income:t.income,expense:t.expense,bal:run});
+      });
+      x.bal=x.open+x.inc-x.exp;
+    });
+    var sum=function(k){return per.reduce(function(t,x){return t+x[k]},0)};
+    var dn=all?"All Businesses":(sd.value===ed.value?per.map(function(x){return x.name}).join(""):per.map(function(x){return x.name}).join(" & "));
+    currentReportData={per:per,open:sum("open"),totalInc:sum("inc"),totalExp:sum("exp"),balance:sum("bal"),
+      meta:{start:plabel(sy,sm),end:plabel(ey,em),deptName:dn||"No business",year:(sy===ey?sy:sy+"-"+ey).replace(/ALL/g,"All"),bf:bfOn}};
+    renderReport();toast("Filtered");
+  }
+  function summaryTable(r){
+    var bf=r.meta.bf;
+    var h='<caption style="text-align:left;font-weight:bold;padding:6px 0">'+(bf?"Balance Carry Forward and Business Summary":"Business Summary")+'</caption><thead><tr><th>Business</th>'+(bf?'<th>Balance Carry Forward</th>':'')+'<th>Income</th><th>Expenses</th><th>Closing Balance</th></tr></thead><tbody>';
+    var row=function(n,o,i,e,b,bold){return '<tr'+(bold?' style="font-weight:bold;background:#f1f5f9"':'')+'><td>'+esc(n)+'</td>'+(bf?'<td>'+fmt(o)+'</td>':'')+'<td>'+fmt(i)+'</td><td style="color:#dc2626">'+fmt(e)+'</td><td style="color:#059669">'+fmt(b)+'</td></tr>'};
+    r.per.forEach(function(x){h+=row(x.name,x.open,x.inc,x.exp,x.bal)});
+    if(r.per.length>1) h+=row("OVERALL",r.open,r.totalInc,r.totalExp,r.balance,true);
+    return h+'</tbody>';
+  }
+  function txTable(r){
+    var bf=r.meta.bf,cs=bf?6:5,red='style="color:#dc2626"';
+    var h='<caption style="text-align:left;font-weight:bold;padding:6px 0">Transactions by Business</caption><thead><tr><th>Date</th><th>Business</th><th>Desc</th><th>Inc</th><th>Exp</th>'+(bf?'<th>Balance</th>':'')+'</tr></thead><tbody>';
+    var bfRow=function(lbl,o){return '<tr><td colspan="3"><i>'+lbl+'</i></td><td></td><td></td><td><b>'+fmt(o)+'</b></td></tr>'};
+    r.per.forEach(function(x){
+      h+='<tr style="background:#e2e8f0;font-weight:bold"><td colspan="'+cs+'">'+esc(x.name)+'</td></tr>';
+      if(bf&&!x.months.length) h+=bfRow("Balance Carry Forward",x.open);
+      x.months.forEach(function(mo){
+        h+='<tr style="background:#f1f5f9"><td colspan="'+cs+'"><b>'+mo.label+'</b></td></tr>';
+        if(bf) h+=bfRow("Balance Carry Forward",mo.open);
+        mo.rows.forEach(function(t){h+='<tr><td>'+t.date+'</td><td>'+esc(x.name)+'</td><td style="font-size:10px">'+esc(t.desc)+'</td><td>'+fmt(t.income)+'</td><td '+red+'>'+fmt(t.expense)+'</td>'+(bf?'<td>'+fmt(t.bal)+'</td>':"")+'</tr>'});
+        h+='<tr style="font-weight:bold"><td colspan="3">'+(bf?"Closing Balance":"Month Total")+'</td><td>'+fmt(mo.inc)+'</td><td '+red+'>'+fmt(mo.exp)+'</td>'+(bf?'<td>'+fmt(mo.close)+'</td>':"")+'</tr>';
+      });
+      h+='<tr style="font-weight:bold;background:#ecfdf5"><td colspan="3">'+esc(x.name)+' total</td><td>'+fmt(x.inc)+'</td><td '+red+'>'+fmt(x.exp)+'</td>'+(bf?'<td>'+fmt(x.bal)+'</td>':"")+'</tr>';
+    });
+    if(r.per.length>1) h+='<tr style="font-weight:bold;background:#d1fae5"><td colspan="3">OVERALL (all businesses)</td><td>'+fmt(r.totalInc)+'</td><td '+red+'>'+fmt(r.totalExp)+'</td>'+(bf?'<td>'+fmt(r.balance)+'</td>':"")+'</tr>';
+    return h+'</tbody>';
+  }
+  function renderReport(){
+    var r=currentReportData,m=r.meta;
+    $("dlBtns").style.display="flex";$("reportHeader").style.display="flex";
+    $("reportSummary").innerHTML='<p style="margin:2px 0"><b>Overall Summary</b></p>'+
+      (m.bf?'<p style="margin:2px 0"><b>Balance Carry Forward:</b> KSH '+fmt(r.open)+'</p>':"")+
+      '<p style="margin:2px 0"><b>Total Income:</b> KSH '+fmt(r.totalInc)+'</p>'+
+      '<p style="margin:2px 0;color:#dc2626"><b>Total Expenses:</b> KSH '+fmt(r.totalExp)+'</p>'+
+      '<p style="margin:5px 0;font-size:1.1rem;color:#059669"><b>Closing Balance: KSH '+fmt(r.balance)+'</b></p>';
+    $("reportMeta").innerHTML='<p style="margin:2px 0"><b>Start:</b> '+esc(m.start)+'</p>'+
+      '<p style="margin:2px 0"><b>End:</b> '+esc(m.end)+'</p>'+
+      '<p style="margin:2px 0"><b>Business:</b> '+esc(m.deptName)+'</p>';
+    $("reportDeptTable").innerHTML=summaryTable(r);
+    $("reportTable").innerHTML=txTable(r);
+  }
+  function reportHTML(){
+    var r=currentReportData,m=r.meta;
+    var ts='style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:20px"';
+    return '<html><head><title>Finance_Report_'+esc(m.year)+'</title><style>th,td{padding:5px;text-align:left}</style></head><body style="font-family:sans-serif;padding:20px">'+
+    '<h2 style="text-align:center;color:#0f172a">Personal Finance Statement</h2>'+
+    '<table style="width:100%;margin-bottom:20px"><tr><td style="width:50%;vertical-align:top">'+
+    '<p><b>Overall Summary</b></p>'+(m.bf?'<p><b>Balance Carry Forward:</b> KSH '+fmt(r.open)+'</p>':"")+
+    '<p><b>Total Income:</b> KSH '+fmt(r.totalInc)+'</p>'+
+    '<p style="color:#dc2626"><b>Total Expenses:</b> KSH '+fmt(r.totalExp)+'</p>'+
+    '<h3 style="color:#059669">Closing Balance: KSH '+fmt(r.balance)+'</h3></td>'+
+    '<td style="text-align:right;vertical-align:top;font-size:12px;color:#475569">'+
+    '<p><b>Start:</b> '+esc(m.start)+'</p><p><b>End:</b> '+esc(m.end)+'</p><p><b>Business:</b> '+esc(m.deptName)+'</p></td></tr></table>'+
+    '<table border="1" '+ts+'>'+summaryTable(r)+'</table>'+
+    '<table border="1" '+ts+'>'+txTable(r)+'</table></body></html>';
+  }
+  function downloadPDF(){
+    if(!currentReportData)return;
+    var fr=document.createElement("iframe");fr.style.cssText="position:fixed;width:0;height:0;border:0";
+    document.body.appendChild(fr);fr.srcdoc=reportHTML();
+    fr.onload=function(){fr.contentWindow.focus();fr.contentWindow.print();setTimeout(function(){fr.remove()},60000)};
+    toast("Choose 'Save as PDF' in the print window");
+  }
+  function downloadCSV(){
+    if(!currentReportData)return;
+    var r=currentReportData,m=r.meta,bf=m.bf,q=function(v){return '"'+String(v).replace(/"/g,'""')+'"'};
+    var c="Start,"+q(m.start)+"\nEnd,"+q(m.end)+"\nBusiness,"+q(m.deptName)+"\n\n";
+    c+="Business,"+(bf?"Balance Carry Forward,":"")+"Income,Expenses,Closing Balance\n";
+    r.per.forEach(function(x){c+=[q(x.name)].concat(bf?[x.open]:[],[x.inc,x.exp,x.bal]).join(",")+"\n"});
+    if(r.per.length>1) c+=["OVERALL"].concat(bf?[r.open]:[],[r.totalInc,r.totalExp,r.balance]).join(",")+"\n";
+    c+="\nBusiness,Month,Date,Description,Income,Expense,Balance\n";
+    r.per.forEach(function(x){
+      if(bf&&!x.months.length) c+=[q(x.name),"","","Balance Carry Forward","","",x.open].join(",")+"\n";
+      x.months.forEach(function(mo){
+        if(bf) c+=[q(x.name),q(mo.label),"","Balance Carry Forward","","",mo.open].join(",")+"\n";
+        mo.rows.forEach(function(t){c+=[q(x.name),q(mo.label),t.date,q(t.desc),t.income,t.expense,bf?t.bal:""].join(",")+"\n"});
+        c+=[q(x.name),q(mo.label),"",bf?"Closing Balance":"Month Total",mo.inc,mo.exp,bf?mo.close:""].join(",")+"\n";
+      });
+      c+=[q(x.name),"","",q(x.name+" total"),x.inc,x.exp,bf?x.bal:""].join(",")+"\n";
+    });
+    saveBlob("Finance_Report_"+m.year+".csv","\ufeff"+c,"text/csv");
+    toast("Done");
+  }
+  function saveBlob(name,text,type){
+    var a=document.createElement("a");
+    var url=URL.createObjectURL(new Blob([text],{type:type}));
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(url)},30000);
+  }
+  function searchTable(){
+    var q=$("deptSearch").value.toUpperCase();
+    Array.prototype.forEach.call($("deptTableBody").rows,function(r){r.style.display=r.cells[0].textContent.toUpperCase().indexOf(q)>-1?"":"none"});
+  }
+
+  /* =========================== BACKUP / RESTORE =========================== */
+  function markDirty(){
+    rev++;clearTimeout(autoTimer);
+    if(autoOn&&!destroyed)autoTimer=setTimeout(function(){autoBackup(false)},8000);
+    drv.dirty=true;
+    if(drv.auto&&drv.connected&&!destroyed){clearTimeout(drvTimer);drvTimer=setTimeout(function(){driveBackup(false)},15000)}
+  }
+  function fnv(str){var h=0x811c9dc5;for(var i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,0x01000193)>>>0}return h.toString(16)}
+  function stamp(){return new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}
+
+  async function buildBackup(){
+    var res=await Promise.all([getAll("departments"),getAll("transactions"),getAll("settings")]);
+    var data={departments:res[0],transactions:res[1],settings:res[2].filter(function(s){return s.id==="bf"})};
+    var checksum=fnv(JSON.stringify(data));
+    var out={app:BK_APP,format:1,version:VERSION,created:new Date().toISOString(),folder:folderName||"",
+      counts:{businesses:data.departments.length,transactions:data.transactions.length},checksum:checksum,data:data};
+    return JSON.stringify(out);
+  }
+  async function getDirHandle(){var r=await getRec("settings","dirHandle");return (r&&r.value)||null}
+  async function ensurePermission(h,askUser){
+    try{
+      var o={mode:"readwrite"};
+      if(h.queryPermission&&(await h.queryPermission(o))==="granted")return true;
+      if(askUser&&h.requestPermission&&(await h.requestPermission(o))==="granted")return true;
+    }catch(e){}
+    return false;
+  }
+  async function chooseDir(){
+    var h=await window.showDirectoryPicker({mode:"readwrite",id:"pfsbackup"});
+    await putRec("settings",{id:"dirHandle",value:h});
+    return h;
+  }
+  async function writeToFolder(handle,fname,text){
+    var sub=await handle.getDirectoryHandle(folderName,{create:true});
+    var fh=await sub.getFileHandle(fname,{create:true});
+    var blob=new Blob([text],{type:"application/json"});
+    var w=await fh.createWritable();
+    await w.write(blob);await w.close();
+    var f=await fh.getFile();
+    if(f.size!==blob.size)throw new Error("Backup file could not be verified after writing");
+  }
+  async function setLast(o){lastBackup=o;try{await putRec("settings",{id:"lastBackup",value:o})}catch(e){}}
+  function setStatus(text,kind){statusMsg=text?{text:text,kind:kind||""}:null;renderBackupPage()}
+
+  function renderBackupPage(){
+    if(destroyed)return;
+    $("autoToggle").checked=autoOn;
+    $("autoState").textContent="Auto Backup is "+(autoOn?"ON":"OFF");
+    $("autoHelp").textContent=autoOn
+      ?"ON: your data is backed up automatically when an internet connection is available and the backup location is allowed."
+      :"OFF: no automatic backups. Use MANUAL BACKUP whenever you want to back up.";
+    var fi=$("folderName"),fb=$("folderSave");
+    if(folderName){fi.value=folderName;fi.disabled=true;fb.disabled=true;fb.textContent="LOCKED";$("folderNote").textContent="The folder name is saved and locked."}
+    else{fi.disabled=false;fb.disabled=false;fb.textContent="SAVE";$("folderNote").textContent="Choose carefully: once saved, the folder name cannot be changed."}
+    var box=$("backupStatus"),txt="",kind="";
+    if(statusMsg){txt=statusMsg.text;kind=statusMsg.kind}
+    else if(lastBackup){
+      if(lastBackup.ok){txt="Last backup ("+lastBackup.mode+"): "+new Date(lastBackup.time).toLocaleString()+"\n"+lastBackup.where;kind="ok"}
+      else{txt="Last backup attempt ("+lastBackup.mode+") failed: "+new Date(lastBackup.time).toLocaleString()+"\n"+lastBackup.error;kind="err"}
+    }else txt="No backup has been made yet.";
+    box.textContent=txt;box.className="pfs-status"+(kind?" pfs-"+kind:"");
+    renderDrive();
+  }
+
+  async function saveFolder(){
+    if(folderName)return;
+    var v=$("folderName").value.trim();
+    if(!v){toast("Enter a folder name");return}
+    if(v.length>60||/[\\\/:*?"<>|\x00-\x1f]/.test(v)||/^\.+$/.test(v)||/[. ]$/.test(v)){toast("Folder name has invalid characters");return}
+    if(!await ask('Save folder name "'+v+'"? Once saved it cannot be changed.'))return;
+    try{
+      await putRec("settings",{id:"folder",value:v});
+      var chk=await getRec("settings","folder");
+      if(!chk||chk.value!==v)throw new Error("Could not verify saved name");
+      folderName=v;statusMsg=null;renderBackupPage();toast("Folder name saved");
+    }catch(e){toast("Could not save folder name")}
+  }
+
+  async function onAutoToggle(){
+    var on=$("autoToggle").checked;
+    if(on&&!folderName){$("autoToggle").checked=false;toast("Save a Folder Name first");return}
+    autoOn=on;
+    try{await putRec("settings",{id:"auto",value:on})}catch(e){toast("Could not save setting")}
+    renderBackupPage();
+    if(!on){clearTimeout(autoTimer);toast("Auto backup OFF");return}
+    toast("Auto backup ON");
+    if(FS){
+      try{
+        var h=await getDirHandle();
+        if(!h||!(await ensurePermission(h,true))) await chooseDir();
+      }catch(e){setStatus("Auto backup is ON but no backup location was chosen. Tap MANUAL BACKUP or switch it ON again to choose one.","warn");return}
+    }
+    autoBackup(true);
+  }
+
+  async function autoBackup(force){
+    if(destroyed||!autoOn||bkBusy)return;
+    if(!force&&rev===lastAutoRev)return;
+    if(!folderName){setStatus("Auto backup is ON but no Save Folder Name has been saved.","warn");return}
+    if(!navigator.onLine){setStatus("Offline: automatic backup will run when the internet is back.","warn");return}
+    if(!FS){setStatus("This browser cannot back up to a folder automatically. Use MANUAL BACKUP (a file is downloaded).","warn");return}
+    var h=null;try{h=await getDirHandle()}catch(e){}
+    if(!h||!(await ensurePermission(h,false))){setStatus("Auto backup is waiting: the backup location is not available or needs permission. Tap MANUAL BACKUP to choose or re-allow it.","warn");return}
+    bkBusy=true;var startRev=rev;
+    try{
+      var text=await buildBackup();
+      await writeToFolder(h,folderName+"_auto_backup.json",text);
+      lastAutoRev=startRev;statusMsg=null;
+      await setLast({time:Date.now(),mode:"auto",ok:true,where:"Saved in "+h.name+"/"+folderName+"/"+folderName+"_auto_backup.json"});
+    }catch(e){
+      await setLast({time:Date.now(),mode:"auto",ok:false,error:String(e&&e.message||e)});
+    }finally{bkBusy=false;renderBackupPage()}
+  }
+
+  async function manualBackup(){
+    if(bkBusy)return;
+    if(!folderName){setStatus("Save a Folder Name first.","err");return}
+    bkBusy=true;$("manualBackupBtn").disabled=true;
+    setStatus("Backing up...","");
+    try{
+      var handle=null;
+      if(FS){
+        handle=await getDirHandle();
+        if(handle&&!(await ensurePermission(handle,true))){
+          setStatus("Permission to the backup location was not granted. Please allow it, or choose the location again.","err");
+          try{handle=await chooseDir()}catch(e){bkBusy=false;$("manualBackupBtn").disabled=false;if(e&&e.name==="AbortError")setStatus("Backup cancelled: no location chosen.","warn");else setStatus("Backup failed: "+(e&&e.message||e),"err");return}
+        }
+        if(!handle){
+          try{handle=await chooseDir()}catch(e){bkBusy=false;$("manualBackupBtn").disabled=false;if(e&&e.name==="AbortError")setStatus("Backup cancelled: no location chosen.","warn");else setStatus("Backup failed: "+(e&&e.message||e),"err");return}
+        }
+      }
+      var text=await buildBackup();
+      var fname=folderName+"_backup_"+stamp()+".json";
+      var where;
+      if(handle){
+        await writeToFolder(handle,fname,text);
+        where="Saved in "+handle.name+"/"+folderName+"/"+fname;
+      }else{
+        saveBlob(fname,text,"application/json");
+        where='File "'+fname+'" was downloaded. Keep it in your "'+folderName+'" folder.';
+      }
+      lastAutoRev=rev;
+      await setLast({time:Date.now(),mode:"manual",ok:true,where:where});
+      setStatus("Backup successful.\n"+where,"ok");toast("Backup successful");
+    }catch(e){
+      var msg=String(e&&e.message||e);
+      await setLast({time:Date.now(),mode:"manual",ok:false,error:msg});
+      setStatus("Backup failed: "+msg,"err");toast("Backup failed");
+    }finally{bkBusy=false;$("manualBackupBtn").disabled=false}
+  }
+
+  /* ----- Restore (merge only: never overwrites or deletes existing records) ----- */
+  function validateBackup(obj){
+    if(!obj||typeof obj!=="object"||obj.app!==BK_APP)return "This is not a Personal Finance System backup file.";
+    if(!obj.data||!Array.isArray(obj.data.departments)||!Array.isArray(obj.data.transactions))return "The backup file is missing its records.";
+    if(typeof obj.checksum!=="string"||obj.checksum!==fnv(JSON.stringify(obj.data)))return "The backup file is damaged or was modified (integrity check failed).";
+    var i,b,t;
+    for(i=0;i<obj.data.departments.length;i++){b=obj.data.departments[i];
+      if(!b||typeof b.id!=="string"||!b.id||typeof b.name!=="string"||!b.name.trim())return "The backup contains an invalid business record.";}
+    var re=/^\d{4}-\d{2}-\d{2}$/;
+    for(i=0;i<obj.data.transactions.length;i++){t=obj.data.transactions[i];
+      if(!t||typeof t.id!=="string"||!t.id||typeof t.dept!=="string"||typeof t.date!=="string"||!re.test(t.date)||
+         (t.type!=="Income"&&t.type!=="Expense")||typeof t.amount!=="number"||!isFinite(t.amount)||t.amount<0||
+         (t.desc!=null&&typeof t.desc!=="string"))return "The backup contains an invalid transaction record.";}
+    return "";
+  }
+  async function planRestore(obj){
+    var cur=await Promise.all([getAll("departments"),getAll("transactions")]);
+    var ld=cur[0],lt=cur[1];
+    var dById=new Map(),dByName=new Map();
+    ld.forEach(function(d){dById.set(d.id,d);var k=d.name.toLowerCase(),e=dByName.get(k);if(!e||(e.active===false&&d.active!==false))dByName.set(k,d)});
+    var map=new Map(),newD=[],reactD=[],reactSet=new Set(),recCount=0;
+    obj.data.departments.forEach(function(b){
+      var l=dById.get(b.id)||dByName.get(b.name.trim().toLowerCase());
+      if(l){map.set(b.id,l.id);
+        if(l.active===false&&b.active!==false&&!reactSet.has(l.id)){reactSet.add(l.id);reactD.push(Object.assign({},l,{active:true}))}}
+      else{var nd={id:b.id,name:b.name.trim(),active:b.active!==false};newD.push(nd);map.set(b.id,nd.id);dById.set(nd.id,nd);dByName.set(nd.name.toLowerCase(),nd)}
+    });
+    var key=function(t,dept){return [t.date,dept,t.type,Number(t.amount),(t.desc||"")].join("|")};
+    var lById=new Map(lt.map(function(t){return [t.id,t]}));
+    var keys=new Set(lt.map(function(t){return key(t,t.dept)}));
+    var newT=[],dup=0,conf=0;
+    obj.data.transactions.forEach(function(t){
+      var l=lById.get(t.id);
+      if(l){if(key(l,l.dept)===key(t,map.get(t.dept)||t.dept))dup++;else conf++;return}
+      var dept=map.get(t.dept);
+      if(!dept){
+        if(dById.has(t.dept))dept=t.dept;
+        else{recCount++;var nd2={id:t.dept,name:"Recovered Business "+recCount,active:true};newD.push(nd2);map.set(t.dept,t.dept);dById.set(t.dept,nd2);dept=t.dept}
+      }
+      var k=key(t,dept);
+      if(keys.has(k)){dup++;return}
+      keys.add(k);
+      var cr=typeof t.created==="number"?t.created:Date.now();
+      newT.push({id:t.id,date:t.date,dept:dept,amount:Number(t.amount),type:t.type,desc:t.desc||"",created:cr,ref:t.ref||("TRX-"+cr)});
+    });
+    return {newD:newD,reactD:reactD,newT:newT,dup:dup,conf:conf};
+  }
+  async function applyRestore(p){
+    var d=await db();
+    return new Promise(function(res,rej){
+      var t=d.transaction(["departments","transactions"],"readwrite");
+      var ds=t.objectStore("departments"),ts=t.objectStore("transactions");
+      p.newD.forEach(function(x){ds.add(x)});
+      p.reactD.forEach(function(x){ds.put(x)});
+      p.newT.forEach(function(x){ts.add(x)});
+      t.oncomplete=function(){res()};
+      t.onabort=function(){rej(t.error||new Error("Restore was cancelled; no changes were made"))};
+      t.onerror=function(){};
+    });
+  }
+  async function handleRestore(file,textIn){
+    if(!file&&textIn===undefined)return;
+    if(bkBusy)return;
+    bkBusy=true;
+    try{
+      var text,obj;
+      if(textIn!==undefined){text=textIn;setStatus("Reading Google Drive backup...","")}
+      else{
+        if(!file.size){setStatus("Restore failed: the selected file is empty.","err");return}
+        if(file.size>300*1024*1024){setStatus("Restore failed: the file is too large (over 300 MB).","err");return}
+        setStatus("Reading backup file...","");
+        try{text=await file.text()}catch(e){setStatus("Restore failed: the file could not be read.","err");return}
+      }
+      try{obj=JSON.parse(text)}catch(e){setStatus("Restore failed: the file is not a valid backup (not readable JSON).","err");return}
+      text=null;
+      var bad=validateBackup(obj);
+      if(bad){setStatus("Restore failed: "+bad,"err");return}
+      var plan=await planRestore(obj);
+      var addT=plan.newT.length,addD=plan.newD.length,react=plan.reactD.length;
+      if(!addT&&!addD&&!react){
+        setStatus("Nothing to restore: every record in this backup already exists."+(plan.conf?"\n"+plan.conf+" record(s) differ from your current data and were left unchanged.":""),"warn");return}
+      var when=obj.created?new Date(obj.created).toLocaleString():"unknown date";
+      var okc=await ask("Restore backup from "+when+"? It will add "+addT+" transaction(s) and "+addD+" business(es). Existing records will not be overwritten or deleted.");
+      if(!okc){setStatus("Restore cancelled. No changes were made.","warn");return}
+      setStatus("Restoring...","");
+      await applyRestore(plan);
+      markDirty();
+      await loadDashboard();if(currentReportData)await runReport();
+      var msg="Restore successful.\nAdded "+addT+" transaction(s) and "+addD+" business(es)."+(react?"\nReactivated "+react+" business(es).":"")+
+        "\nSkipped "+plan.dup+" duplicate(s)"+(plan.conf?" and left "+plan.conf+" differing record(s) unchanged":"")+".";
+      setStatus(msg,"ok");toast("Restore successful");
+      restoreOk=true;
+    }catch(e){
+      setStatus("Restore failed: "+String(e&&e.message||e)+". No changes were made.","err");
+    }finally{bkBusy=false}
+  }
+
+
+  /* =========================== GOOGLE DRIVE BACKUP (separate Finance folder) ===========================
+     Uses the same Google OAuth client and the same Google account as the POS (the account is shared through a small
+     non-secret hint in localStorage; access tokens are never stored or shared). The Finance backup lives in its OWN Drive
+     folder (tagged ekambaniFinanceBackup) and its own file, so POS and Finance backups can never overwrite each other. */
+  var GD={CLIENT_ID:opts.clientId||"91062929087-i8mhcncd17gg6fbfrfkuqidepga9j2eo.apps.googleusercontent.com",
+    SCOPE:"https://www.googleapis.com/auth/drive.file",API:"https://www.googleapis.com/drive/v3",UP:"https://www.googleapis.com/upload/drive/v3",
+    FILE:"ekambani-finance-backup.json",MARK:"ekambaniFinanceBackup",HINT:"ekambani_shared_drive"};
+  var gdTok={v:"",exp:0},gdGis=null;
+  var gdEnvOk=function(){return location.protocol==="https:"||/^(localhost|127\.0\.0\.1)$/.test(location.hostname)};
+  function sharedEmail(){try{var j=JSON.parse(localStorage.getItem(GD.HINT)||"null");return (j&&j.accountEmail)||""}catch(e){return ""}}
+  function shareEmail(em){try{if(em&&sharedEmail()!==em)localStorage.setItem(GD.HINT,JSON.stringify({accountEmail:em,ts:Date.now()}))}catch(e){}}
+  function gdQ(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
+  function gdTokenOk(){return !!gdTok.v&&Date.now()<gdTok.exp-60000}
+  function gdLoadGis(){
+    if(window.google&&google.accounts&&google.accounts.oauth2)return Promise.resolve();
+    if(gdGis)return gdGis;
+    gdGis=new Promise(function(res,rej){var s=document.createElement("script");s.src="https://accounts.google.com/gsi/client";s.async=true;
+      s.onload=function(){res()};s.onerror=function(){gdGis=null;rej(new Error("Could not load Google sign-in. Check the internet connection."))};document.head.appendChild(s)});
+    return gdGis;
+  }
+  async function gdToken(interactive){
+    if(gdTokenOk())return gdTok.v;
+    if(!gdEnvOk())throw new Error("Google Drive needs https (GitHub Pages) or localhost.");
+    if(!navigator.onLine)throw new Error("No internet connection.");
+    await gdLoadGis();
+    var hint=drv.email||sharedEmail();
+    return new Promise(function(res,rej){
+      var done=false,t=setTimeout(function(){if(!done){done=true;rej(new Error(interactive?"Google sign-in did not finish.":"Google needs you to tap CONNECT GOOGLE DRIVE again."))}},interactive?120000:15000);
+      var client=google.accounts.oauth2.initTokenClient({client_id:GD.CLIENT_ID,scope:GD.SCOPE,hint:hint||undefined,
+        callback:function(r){if(done)return;done=true;clearTimeout(t);
+          if(r&&r.access_token){gdTok={v:r.access_token,exp:Date.now()+(Number(r.expires_in)||3600)*1000};res(gdTok.v)}
+          else rej(new Error((r&&r.error_description)||"Google did not allow access."))},
+        error_callback:function(e){if(done)return;done=true;clearTimeout(t);rej(new Error(e&&e.type==="popup_closed"?"Google sign-in was closed.":"Google sign-in failed."))}});
+      client.requestAccessToken({prompt:hint?"":"select_account"});
+    });
+  }
+  async function gdF(url,o){
+    var tok=await gdToken(false);o=o||{};o.headers=Object.assign({},o.headers,{Authorization:"Bearer "+tok});
+    var r;try{r=await fetch(url,o)}catch(e){throw new Error("Network problem. Check the internet connection.")}
+    if(r.status===401){gdTok={v:"",exp:0};throw new Error("Google access expired. Tap CONNECT GOOGLE DRIVE.")}
+    if(!r.ok){var m="";try{m=(await r.json()).error.message}catch(e){}var er=new Error("Google Drive error ("+r.status+")"+(m?": "+m:""));er.status=r.status;throw er}
+    return r;
+  }
+  async function saveDrv(){try{await putRec("settings",drv)}catch(e){}}
+  async function gdEmail(){try{var j=await (await gdF(GD.API.replace("/drive/v3","")+"/drive/v3/about?fields=user(emailAddress)")).json();return (j.user&&j.user.emailAddress)||""}catch(e){return ""}}
+  /* Finds this account's existing Finance backup folder by ID (tag, or the parent of the Finance backup file); never by name. */
+  async function gdFindFolder(){
+    var f="id,name,mimeType,trashed,ownedByMe",okF=function(x){return x&&x.mimeType==="application/vnd.google-apps.folder"&&!x.trashed&&x.ownedByMe!==false};
+    var q1="mimeType='application/vnd.google-apps.folder' and appProperties has { key='"+GD.MARK+"' and value='1' } and 'me' in owners and trashed=false";
+    var l=(await (await gdF(GD.API+"/files?fields=files("+f+")&orderBy=createdTime&pageSize=20&q="+encodeURIComponent(q1))).json()).files||[];
+    l=l.filter(okF);
+    if(!l.length){
+      var q2="name='"+GD.FILE+"' and trashed=false and 'me' in owners";
+      var fl=(await (await gdF(GD.API+"/files?fields=files(id,parents,modifiedTime)&orderBy=modifiedTime desc&pageSize=20&q="+encodeURIComponent(q2))).json()).files||[];
+      for(var i=0;i<fl.length&&!l.length;i++){var pid=fl[i].parents&&fl[i].parents[0];if(!pid)continue;
+        var p=await (await gdF(GD.API+"/files/"+encodeURIComponent(pid)+"?fields="+f)).json();if(okF(p))l.push(p)}
+    }
+    if(!l.length)return null;
+    gdF(GD.API+"/files/"+encodeURIComponent(l[0].id)+"?fields=id",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({appProperties:(function(o){o[GD.MARK]="1";return o})({})})}).catch(function(){});
+    return {id:l[0].id,name:l[0].name};
+  }
+  async function gdCheckFolder(id){
+    try{var x=await (await gdF(GD.API+"/files/"+encodeURIComponent(id)+"?fields=id,trashed,ownedByMe")).json();return !x.trashed&&x.ownedByMe!==false}catch(e){if(e.status===404||e.status===403)return false;throw e}
+  }
+  async function gdFindFile(folderId){
+    var q="'"+gdQ(folderId)+"' in parents and name='"+GD.FILE+"' and trashed=false";
+    var l=(await (await gdF(GD.API+"/files?fields=files(id,modifiedTime)&orderBy=modifiedTime desc&pageSize=5&q="+encodeURIComponent(q))).json()).files||[];
+    return l[0]||null;
+  }
+  async function gdUpload(text,folderId,fileId){
+    var b="pfs"+Date.now().toString(36),meta=fileId?{name:GD.FILE,mimeType:"application/json"}:{name:GD.FILE,mimeType:"application/json",parents:[folderId]};
+    var body="--"+b+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+"\r\n--"+b+"\r\nContent-Type: application/json\r\n\r\n"+text+"\r\n--"+b+"--";
+    var url=GD.UP+"/files"+(fileId?"/"+encodeURIComponent(fileId):"")+"?uploadType=multipart&fields=id,size";
+    var r=await gdF(url,{method:fileId?"PATCH":"POST",headers:{"Content-Type":"multipart/related; boundary="+b},body:body});
+    var j=await r.json();
+    if(!j.id||(j.size!==undefined&&Number(j.size)!==new Blob([text]).size))throw new Error("The backup was not saved completely, so it was not counted as successful.");
+    return j.id;
+  }
+  async function ensureDriveFolder(createIfMissing){
+    if(drv.folderId){if(await gdCheckFolder(drv.folderId))return drv.folderId;
+      throw new Error("The saved Finance backup folder is not available in this Google account. It was not replaced automatically.")}
+    var ex=await gdFindFolder();
+    if(ex){drv.folderId=ex.id;drv.folderName=ex.name;drv.fileId="";drv.syncedFileId="";
+      if(!folderName){folderName=ex.name;try{await putRec("settings",{id:"folder",value:ex.name})}catch(e){}}
+      await saveDrv();return ex.id}
+    if(!createIfMissing)return "";
+    if(!folderName)throw new Error("Save a Folder Name first (above), then back up to Google Drive.");
+    var o={name:folderName,mimeType:"application/vnd.google-apps.folder"};o.appProperties={};o.appProperties[GD.MARK]="1";
+    var c=await (await gdF(GD.API+"/files?fields=id,name",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)})).json();
+    drv.folderId=c.id;drv.folderName=c.name;drv.fileId="";drv.syncedFileId="";await saveDrv();return c.id;
+  }
+  function renderDrive(){
+    if(destroyed)return;
+    var a=$("driveAuto");if(!a)return;
+    a.checked=!!drv.auto;$("driveAutoState").textContent="Drive Auto Backup is "+(drv.auto?"ON":"OFF");
+    $("driveHelp").textContent="Backs up Finance records to its own Google Drive folder, separate from the POS backup. Needs internet; Finance itself works offline.";
+    $("driveConnectBtn").textContent=drv.connected?"RECONNECT GOOGLE DRIVE":"CONNECT GOOGLE DRIVE";
+    var i=[];
+    if(drv.connected)i.push("Connected"+(drv.email?" as "+drv.email:"")+".");else if(sharedEmail())i.push("Same Google account as the POS: "+sharedEmail()+".");
+    if(drv.folderName)i.push("Finance folder: "+drv.folderName+" (permanent).");
+    if(drv.last)i.push("Last Drive backup: "+new Date(drv.last).toLocaleString()+".");
+    if(drv.dirty&&drv.connected)i.push("Changes waiting to be backed up.");
+    $("driveInfo").textContent=i.join(" ");
+  }
+  async function driveConnect(){
+    if(drvBusy)return;drvBusy=true;$("driveConnectBtn").disabled=true;
+    try{
+      await gdToken(true);
+      var em=await gdEmail();if(em){drv.email=em;shareEmail(em)}
+      drv.connected=true;await saveDrv();
+      if(!drv.folderId){
+        var ex=await ensureDriveFolder(false);
+        if(ex)toast("Your existing Finance backup folder was found: "+drv.folderName);
+      }
+      setStatus("Google Drive connected"+(drv.email?" as "+drv.email:"")+"."+(drv.folderId?"\nFinance backup folder: "+drv.folderName+".\nTap DRIVE RESTORE to load your Finance records.":"\nNo Finance backup folder yet; one is created on the first DRIVE BACKUP."),"ok");
+    }catch(e){setStatus("Google Drive: "+(e&&e.message||e),"err")}
+    finally{drvBusy=false;$("driveConnectBtn").disabled=false;renderDrive()}
+  }
+  async function driveBackup(interactive){
+    if(drvBusy||bkBusy)return;
+    if(!drv.connected){if(interactive)setStatus("Connect Google Drive first.","warn");return}
+    if(!navigator.onLine){setStatus("Offline: the Google Drive backup will run when the internet is back.","warn");return}
+    drvBusy=true;if(interactive)$("driveBackupBtn").disabled=true;
+    var startRev=rev;
+    try{
+      if(interactive)setStatus("Backing up to Google Drive...","");
+      var folderId=await ensureDriveFolder(true);
+      var file=await gdFindFile(folderId),fileId=file?file.id:"";
+      if(fileId&&drv.syncedFileId!==fileId){
+        if(!interactive){setStatus("Drive backup is waiting: a Finance backup already exists in the Drive folder that this device has not restored. Tap DRIVE BACKUP or DRIVE RESTORE.","warn");return}
+        if(!await ask("A Finance backup already exists in Google Drive and this device has not restored it. Replace it with this device's data? (Use DRIVE RESTORE first to keep that data.)"))return;
+      }
+      var text=await buildBackup();
+      var id=await gdUpload(text,folderId,fileId);
+      drv.fileId=id;drv.syncedFileId=id;drv.last=Date.now();if(rev===startRev)drv.dirty=false;await saveDrv();
+      setStatus("Google Drive backup successful.\nFolder: "+drv.folderName+" / "+GD.FILE+"\n"+new Date(drv.last).toLocaleString(),"ok");if(interactive)toast("Drive backup successful");
+    }catch(e){setStatus("Google Drive backup failed: "+(e&&e.message||e),"err")}
+    finally{drvBusy=false;$("driveBackupBtn").disabled=false;renderDrive()}
+  }
+  async function driveRestore(){
+    if(drvBusy||bkBusy)return;
+    if(!drv.connected){setStatus("Connect Google Drive first.","warn");return}
+    if(!navigator.onLine){setStatus("Restore needs an internet connection.","warn");return}
+    drvBusy=true;$("driveRestoreBtn").disabled=true;var text=null,fid="";
+    try{
+      setStatus("Looking for your Finance backup in Google Drive...","");
+      var folderId=await ensureDriveFolder(false);
+      if(!folderId){setStatus("No Finance backup folder was found in this Google account.","warn");return}
+      var file=await gdFindFile(folderId);
+      if(!file){setStatus("The Finance backup folder has no backup file yet.","warn");return}
+      fid=file.id;text=await (await gdF(GD.API+"/files/"+encodeURIComponent(fid)+"?alt=media")).text();
+    }catch(e){setStatus("Google Drive restore failed: "+(e&&e.message||e),"err");return}
+    finally{drvBusy=false;$("driveRestoreBtn").disabled=false}
+    restoreOk=false;
+    await handleRestore(null,text);          // same validation and merge-only restore as a file restore (rejects POS backups)
+    if(restoreOk){drv.fileId=fid;drv.syncedFileId=fid;drv.dirty=false;await saveDrv()}
+    renderDrive();
+  }
+  async function onDriveAuto(){
+    var on=$("driveAuto").checked;
+    if(on&&!drv.connected){$("driveAuto").checked=false;toast("Connect Google Drive first");return}
+    drv.auto=on;await saveDrv();renderDrive();
+    if(on){toast("Drive auto backup ON");driveBackup(false)}else{clearTimeout(drvTimer);toast("Drive auto backup OFF")}
+  }
+
+  /* ---------- event wiring ---------- */
+  function onRootClick(e){
+    var n=e.target.closest("[data-t]");
+    if(n){if(n.dataset.t==="more")toggleMore();else switchTab(n.dataset.t);return}
+    var g=e.target.closest("[data-go]");
+    if(g){switchTab(g.dataset.go);return}
+    var a=e.target.closest("[data-act]");
+    if(a){
+      var id=a.dataset.id,act=a.dataset.act;
+      if(act==="edit")startEdit(id);
+      else if(act==="del")confirmDelete(id);
+      else if(act==="rmdept")removeDept(id);
+    }
+  }
+  function onDocClick(e){
+    if(!e.target.closest||(!e.target.closest(".pfs-more")&&!e.target.closest('[data-t="more"]')))toggleMore(false);
+  }
+  function onOnline(){autoBackup(true);if(drv.auto&&drv.connected&&drv.dirty)driveBackup(false)}
+
+  root.addEventListener("click",onRootClick);
+  document.addEventListener("click",onDocClick);
+  window.addEventListener("online",onOnline);
+  $("dashMonth").addEventListener("change",loadDashboard);
+  $("dashYear").addEventListener("change",loadDashboard);
+  $("deptSearch").addEventListener("input",searchTable);
+  $("runReportBtn").addEventListener("click",runReport);
+  $("pdfBtn").addEventListener("click",downloadPDF);
+  $("csvBtn").addEventListener("click",downloadCSV);
+  $("deptMgmtToggle").addEventListener("click",toggleDeptMgmt);
+  $("addDeptBtn").addEventListener("click",addNewDept);
+  $("saveBtn").addEventListener("click",saveTrx);
+  $("cancelEdit").addEventListener("click",resetForm);
+  $("bfToggle").addEventListener("change",toggleBF);
+  $("autoToggle").addEventListener("change",onAutoToggle);
+  $("folderSave").addEventListener("click",saveFolder);
+  $("manualBackupBtn").addEventListener("click",manualBackup);
+  $("restoreBtn").addEventListener("click",function(){$("restoreFile").value="";$("restoreFile").click()});
+  $("driveConnectBtn").addEventListener("click",driveConnect);
+  $("driveBackupBtn").addEventListener("click",function(){driveBackup(true)});
+  $("driveRestoreBtn").addEventListener("click",driveRestore);
+  $("driveAuto").addEventListener("change",onDriveAuto);
+  $("restoreFile").addEventListener("change",function(){var f=this.files&&this.files[0];handleRestore(f);this.value=""});
+
+  /* ---------- init ---------- */
+  async function init(){
+    $("waLink").href=waUrl();
+    if(BACK_URL){var bl=$("backLink");bl.href=BACK_URL;bl.style.display="flex"}
+    setupUI();
+    $("trxDate").valueAsDate=new Date();
+    try{
+      await db();
+      await migrateLegacy();
+      await seedPersonal();
+      var st=await getRec("settings","bf");bfOn=!st||st.value!==false;
+      var au=await getRec("settings","auto");autoOn=!!(au&&au.value===true);
+      var fo=await getRec("settings","folder");folderName=(fo&&typeof fo.value==="string")?fo.value:"";
+      if(autoOn&&!folderName)autoOn=false;
+      var lb=await getRec("settings","lastBackup");lastBackup=lb?lb.value:null;
+      var dv=await getRec("settings","drive");if(dv)drv=Object.assign(drv,dv,{id:"drive"});
+    }catch(e){
+      toast("Storage problem: "+(e&&e.message||e));
+    }
+    $("bfToggle").checked=bfOn;$("bfState").textContent="B/F is "+(bfOn?"ON":"OFF");
+    renderBackupPage();
+    try{await loadDashboard()}catch(e){}
+    rev=0;lastAutoRev=0;
+    if(autoOn)autoBackup(true);
+    renderDrive();
+  }
+  init();
+
+  function destroy(){
+    destroyed=true;clearTimeout(autoTimer);clearTimeout(drvTimer);
+    root.removeEventListener("click",onRootClick);
+    document.removeEventListener("click",onDocClick);
+    window.removeEventListener("online",onOnline);
+    if(_db){try{_db.close()}catch(e){}_db=null}
+    if(root.parentNode)root.parentNode.removeChild(root);
+  }
+  return {root:root,destroy:destroy,showTab:switchTab,refresh:loadDashboard,version:VERSION};
+}
+
+/* ------------------------------ public API ------------------------------ */
+var active=null;
+var PFS={
+  version:VERSION,
+  mount:function(container,opts){
+    if(active){active.destroy();active=null}
+    active=mountImpl(container,opts);
+    return active;
+  }
+};
+window.PersonalFinanceSystem=PFS;
+
+function autoMount(){
+  if(window.PFS_NO_AUTOMOUNT)return;
+  var m=document.getElementById("pfs-mount");
+  if(m)PFS.mount(m,{embedded:false,backUrl:(window.top===window)?"index.html":""});   /* inside EKAMBANI the shell provides the Back chevron */
+}
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",autoMount);
+else autoMount();
+})();
+</script>
+</body>
+</html>
